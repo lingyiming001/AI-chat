@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output and caches
+.next/
+.next-*/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.cache/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Runtime data, uploaded images, and local databases
+.data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs and test artifacts
+*.log
+.playwright-cli/
+output/
+playwright-report/
+test-results/
+
+# Editor and operating system files
+.DS_Store
+._*
+Thumbs.db
+.idea/
+*.swp
+*.swo
+*~

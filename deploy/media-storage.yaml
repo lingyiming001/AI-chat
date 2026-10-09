@@ -1,0 +1,9 @@
+# Use an existing RWX-capable network storage class; replace before applying.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: xingliao-media }
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: REPLACE_RWX_STORAGE_CLASS
+  resources:
+    requests: { storage: 100Gi }

@@ -1,0 +1,54 @@
+name: ai
+services:
+  app:
+    profiles: ["app"]
+    build: .
+    ports:
+      - "127.0.0.1:3200:3000"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_chat_platform?schema=public
+      REDIS_URL: redis://redis:6379
+      APP_URL: http://localhost:3200
+      MEDIA_ROOT: /app/.data/media
+    volumes:
+      - media_data:/app/.data/media
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ai_chat_platform
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_chat_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:56379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  postgres_data:
+  media_data:

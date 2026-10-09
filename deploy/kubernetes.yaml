@@ -1,0 +1,111 @@
+# Replace the image and hostname; create xingliao-secrets before applying.
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: xingliao }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: xingliao } }
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata: { labels: { app: xingliao } }
+    spec:
+      terminationGracePeriodSeconds: 200
+      securityContext: { fsGroup: 1000 }
+      volumes:
+        - name: media
+          persistentVolumeClaim: { claimName: xingliao-media }
+      containers:
+        - name: app
+          image: ghcr.io/REPLACE_OWNER/ai-chat-platform:REPLACE_VERSION
+          ports: [{ containerPort: 3000 }]
+          envFrom: [{ secretRef: { name: xingliao-secrets } }]
+          env:
+            - { name: APP_MODE, value: production }
+            - { name: APP_URL, value: "https://chat.example.com" }
+            - { name: MEDIA_ROOT, value: "/app/.data/media" }
+          volumeMounts:
+            - { name: media, mountPath: /app/.data/media }
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits: { cpu: "2", memory: "2Gi" }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 3000 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            {
+              allowPrivilegeEscalation: false,
+              runAsNonRoot: true,
+              runAsUser: 1000,
+            }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: xingliao }
+spec:
+  selector: { app: xingliao }
+  ports: [{ port: 80, targetPort: 3000 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: xingliao }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: xingliao }
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: xingliao }
+spec:
+  minAvailable: 2
+  selector: { matchLabels: { app: xingliao } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: xingliao
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-body-size: "6m"
+spec:
+  ingressClassName: nginx
+  tls: [{ hosts: [chat.example.com], secretName: xingliao-tls }]
+  rules:
+    - host: chat.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: xingliao, port: { number: 80 } } }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: xingliao-reconcile }
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: reconcile
+              image: ghcr.io/REPLACE_OWNER/ai-chat-platform:REPLACE_VERSION
+              command: ["node", "--import", "tsx", "scripts/reconcile.ts"]
+              envFrom: [{ secretRef: { name: xingliao-secrets } }]
+              resources:
+                requests: { cpu: "100m", memory: "128Mi" }
+                limits: { cpu: "500m", memory: "512Mi" }

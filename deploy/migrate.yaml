@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: Job
+metadata: { name: xingliao-migrate }
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/REPLACE_OWNER/ai-chat-platform:REPLACE_VERSION
+          command: ["node_modules/.bin/prisma", "migrate", "deploy"]
+          envFrom: [{ secretRef: { name: xingliao-secrets } }]
