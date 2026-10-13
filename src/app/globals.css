@@ -814,14 +814,21 @@ button {
 .conversation-list {
   margin-top: 35px;
 }
-.conversation-list > a {
+.conversation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.conversation-row > a {
   display: flex;
   align-items: center;
   gap: 18px;
   padding: 20px 0;
-  border-bottom: 1px solid var(--line);
+  flex: 1;
+  min-width: 0;
 }
-.conversation-list > a > div {
+.conversation-row > a > div {
   flex: 1;
   min-width: 0;
 }
@@ -840,6 +847,13 @@ button {
 .conversation-list time {
   font-size: 11px;
   color: #979c98;
+}
+.conversation-actions { display: flex; gap: 4px; }
+.conversation-actions .icon-button, .conversation-row > .icon-button { flex-shrink: 0; }
+@media (max-width: 640px) {
+  .chat-header { flex-wrap: wrap; }
+  .conversation-row > a { gap: 8px; }
+  .conversation-row time { display: none; }
 }
 .avatar {
   width: 46px;

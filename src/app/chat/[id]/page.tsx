@@ -1,6 +1,7 @@
 "use client";
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Send,
@@ -12,6 +13,8 @@ import {
   Upload,
   Square,
   X,
+  Eraser,
+  Trash2,
 } from "lucide-react";
 import { type Feature } from "@/lib/model-catalog";
 import { Nav } from "@/components/Nav";
@@ -29,12 +32,23 @@ type Message = {
 };
 export default function Chat({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const { user, loading, refresh } = useSession();
   const [chatDemo, setChatDemo] = useState<boolean | null>(null);
   const [character, setCharacter] = useState<RoleCard | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  async function manage(action: "clear" | "delete") {
+    if (busy || !user || !window.confirm(action === "clear" ? "清空此对话全部消息？无法撤销，会话入口保留，已消费星币不会退回。" : "删除此对话及全部消息？无法撤销，已消费星币不会退回。")) return;
+    setBusy(true); setError("");
+    try {
+      await api("/api/conversations", { method: "POST", body: JSON.stringify({ characterId: id, action }) });
+      setMessages([]); retry.current = null;
+      if (action === "delete") router.push("/conversations");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  }
   const [error, setError] = useState("");
   const [mode, setMode] = useState<Feature>("CHAT");
   const [available, setAvailable] = useState<
@@ -322,6 +336,10 @@ export default function Chat({ params }: { params: Promise<{ id: string }> }) {
                   <Coins size={16} />
                   {user?.balance ?? 0}
                 </Link>
+                {user && <div className="conversation-actions">
+                  <button type="button" className="icon-button" title="清空消息" aria-label="清空消息" disabled={busy || recording || recordStarting} onClick={() => void manage("clear")}><Eraser size={17} /></button>
+                  <button type="button" className="icon-button" title="删除对话" aria-label="删除对话" disabled={busy || recording || recordStarting} onClick={() => void manage("delete")}><Trash2 size={17} /></button>
+                </div>}
               </header>
               <div className="messages" aria-live="polite">
                 <div className="conversation-start">

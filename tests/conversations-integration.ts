@@ -1,0 +1,61 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID, createHash } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
+import Redis from "ioredis";
+test("conversation cleanup is private, irreversible and preserves billing", async () => {
+  const db = new PrismaClient();
+  const redis = new Redis(process.env.REDIS_URL!);
+  const base = process.env.APP_URL || "http://localhost:3101";
+  const users: string[] = [];
+  let characterId = "";
+  try {
+    const makeUser = async () => {
+      const token = randomUUID();
+      const user = await db.user.create({ data: { email: `${token}@cleanup.test`, passwordHash: "unused-test-only", wallet: { create: { balance: 50 } }, authSessions: { create: { tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 600000) } } } });
+      users.push(user.id);
+      return { id: user.id, cookie: "xingliao_session=" + token };
+    };
+    const owner = await makeUser(), other = await makeUser();
+    const card = await db.character.create({ data: { name: "清理测试", title: "临时验收角色", greeting: "你好", systemPrompt: "仅用于临时测试的虚构角色", tags: [], status: "PUBLISHED" } });
+    characterId = card.id;
+    const session = await db.chatSession.create({ data: { userId: owner.id, characterId, messages: { create: [{ role: "USER", content: "private-question" }, { role: "ASSISTANT", content: "private-reply" }] } } });
+    const request = await db.chatRequest.create({ data: { id: randomUUID(), userId: owner.id, characterId, status: "COMPLETED", content: "private-question", reply: "private-reply", result: { reply: "private-reply" }, coins: 1 } });
+    const post = (cookie: string, action: string, origin = base) => fetch(base + "/api/conversations", { method: "POST", headers: { Cookie: cookie, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ characterId, action }) });
+    assert.equal((await post("", "clear")).status, 401);
+    assert.equal((await post(owner.cookie, "clear", "https://evil.example")).status, 403);
+    assert.equal((await post(other.cookie, "delete")).status, 200);
+    assert.equal(await db.chatMessage.count({ where: { sessionId: session.id } }), 2);
+    await redis.set("chat-lock:" + owner.id, "test-lock", "EX", 30);
+    assert.equal((await post(owner.cookie, "clear")).status, 409);
+    await redis.del("chat-lock:" + owner.id);
+    const pending = await db.chatRequest.create({ data: { id: randomUUID(), userId: owner.id, characterId, content: "pending", coins: 1 } });
+    assert.equal((await post(owner.cookie, "clear")).status, 409);
+    await db.chatRequest.delete({ where: { id: pending.id } });
+    const mediaId = randomUUID();
+    await db.mediaAsset.create({ data: { id: mediaId, userId: owner.id, requestId: request.id, mimeType: "image/png", size: 10 } });
+    assert.equal((await post(owner.cookie, "clear")).status, 200);
+    assert.ok(await db.chatSession.findUnique({ where: { id: session.id } }));
+    assert.equal(await db.chatMessage.count({ where: { sessionId: session.id } }), 0);
+    const cleaned = await db.chatRequest.findUniqueOrThrow({ where: { id: request.id } });
+    assert.equal(cleaned.content, ""); assert.equal(cleaned.reply, null); assert.equal(cleaned.result, null);
+    assert.equal(cleaned.status, "COMPLETED"); assert.equal(cleaned.coins, 1);
+    assert.equal(await db.mediaAsset.count({ where: { id: mediaId } }), 0);
+    assert.equal((await db.wallet.findUniqueOrThrow({ where: { userId: owner.id } })).balance, 50);
+    const replay = await fetch(base + "/api/chat", { method: "POST", headers: { Cookie: owner.cookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ characterId, content: "private-question", requestId: request.id }) });
+    assert.equal(replay.status, 409);
+    assert.equal((await post(owner.cookie, "delete")).status, 200);
+    assert.equal(await db.chatSession.count({ where: { id: session.id } }), 0);
+    assert.equal((await post(owner.cookie, "delete")).status, 200);
+  } finally {
+    await db.chatMessage.deleteMany({ where: { session: { userId: { in: users } } } });
+    await db.chatSession.deleteMany({ where: { userId: { in: users } } });
+    await db.mediaAsset.deleteMany({ where: { userId: { in: users } } });
+    await db.chatRequest.deleteMany({ where: { userId: { in: users } } });
+    await db.authSession.deleteMany({ where: { userId: { in: users } } });
+    await db.wallet.deleteMany({ where: { userId: { in: users } } });
+    await db.user.deleteMany({ where: { id: { in: users } } });
+    if (characterId) await db.character.delete({ where: { id: characterId } });
+    await db.$disconnect(); await redis.quit();
+  }
+});
